@@ -1,0 +1,167 @@
+<html>
+<head>
+<title>QPMS</title>
+</head>
+<body>
+
+<?php
+set_time_limit(500000) ;
+require_once 'class.phpmailer.php';
+include 'class.smtp.php';
+require 'db_connect.php';
+
+//THIS PAGE WILL BE SCHEDULED DAILY
+
+ echo "Today is ".date("d-m-Y").".<br>";
+//$day = date("Y-m-d");
+$month = date("m"); 
+//echo "month: ".$month;
+//$next_month = $month + 1;
+$month_fullname = date("F");
+$current_year = date("Y");
+
+if ($month < 10){
+	$month1 = "0".+$month;
+}else{
+	$month1 = $month;
+}
+
+$today = date("Y-$month1-d");
+//echo "<br>date today: ".$today."<br>";
+
+$today_date = date("Y-m-d");
+//echo $tomorrow;
+//exit();
+$emailsuccess = 0;
+//TO GET DUE DATE & REMINDER DAYS FOR COURSE REVISION 
+$sql = "SELECT * FROM reminder WHERE faculty_id = 1 AND role_id = 2 AND trimester_id in (SELECT id FROM trimester WHERE trimester_start < now() AND trimester_end > now())"; //echo $sql;
+$result = mysqli_query($conn,$sql);
+if(mysqli_num_rows($result) > 0)
+{
+	while($rs = mysqli_fetch_array($result)) //may have more than 1 course revisions
+	{
+		$duedate = $rs['due_date'];
+		$daybefore = $rs['day_before'];
+		$dayafter = $rs['day_after'];
+		if($daybefore == "")
+		{
+			$email_date_bef = "";
+		}
+		else
+		{
+			$email_date_bef = date("Y-m-d",strtotime("$duedate -$daybefore day"));
+		}
+		$email_date_due = date("Y-m-d",strtotime($duedate));
+		if($dayafter == "")
+		{
+			$email_date_aft = "";
+		}
+		else
+		{
+			$email_date_aft = date("Y-m-d",strtotime("$duedate +$dayafter day"));
+		}
+		if($email_date_bef==$today_date||$email_date_due==$today_date||$email_date_aft==$today_date)
+		{
+			//GET EMAIL OF Coor users
+			$ChkACC1 = "select `users`.`name`, `users`.`staffid`, `users`.`email`, `course`.`course_code`, `course`.`course_name`, `course`.`trimester_id` from `users` inner join `courselist` on `courselist`.`coordinator` = `users`.`id` inner join `course` on `courselist`.`course_id` = `course`.`id` where (`courselist`.`faculty_id` = 1 and `users`.`role_id` = 2)";
+			$qryACC1 = mysqli_query($conn,$ChkACC1);
+			$rsACC1 = mysqli_fetch_array($qryACC1);
+			$ACC1_Email = $rsACC1['email'];
+			$ACC1_Name = $rsACC1['name'];
+			$ACC1_CCode = $rsACC1['course_code'];
+			$ACC1_CName = $rsACC1['course_name'];
+			$ACC1_CTID = $rsACC1['trimester_id'];
+
+			//SENDING EMAIL...
+			send_email($ACC1_Email,$ACC1_Name,$ACC1_CCode,$ACC1_CName,$ACC1_CTID,$email_date_bef,$email_date_due,$email_date_aft);
+		}
+	}	
+}
+
+function send_email($email,$fullname,$coursecode,$coursename,$trimester,$duedate,$daybef,$dayaft){ //email will be sent if current date = reminder date
+
+	$duedate_label = date("j M Y",strtotime($duedate));
+	
+	try{ //new
+		//insert below condition...
+		$mail = new PHPMailer(true); // the true param means it will throw exceptions on errors, which we need to catch
+		$mail->isSMTP(); // telling the class to use SMTP
+		
+		$body = " 
+					Dear <strong>$fullname</strong>,<br/><br/>
+				
+					A  reminder to complete the question paper moderation assigned for [$trimester] $coursecode:$coursename to you.<br/>
+					
+					<br><br>
+					Any enquiry please contact System Admin.
+					<br/>
+					<br/>
+					Thank you and have a great day.<br><br>
+				
+					Regards,<br/>
+					Question Paper Moderation System Admin.
+					";
+		
+			$mail->Host       = "ext-smtp-1.mmu.edu.my"; // SMTP server
+			$mail->SMTPDebug  = 2;                     // enables SMTP debug information (for testing)
+			$mail->SMTPAuth   = false;                  // enable SMTP authentication
+			$mail->Port       = 25;                    // set the SMTP port for the GMAIL server
+			$mail->SetFrom('noreply@mmu.edu.my', 'Question Paper Moderation System');
+			
+			$mail->AddAddress('shahirazrie@gmail.com','Shahir Azrie'); //temp close if testing	
+
+		  	$mail->Subject    = "QPMS: Reminder Email"; //original
+		  
+		  $mail->MsgHTML($body);
+		  if($mail->Send()){
+			echo "Message Has Been Sent OK</p>\n";
+			$emailsuccess++;
+		  }	
+		  else 
+		  {
+			echo "Fail send to ".$email;
+		  }
+			
+	} //new added	30092015
+	catch(phpmailerException $e)
+	{
+		echo $e->errorMessage(); //Pretty error messages from PHPMailer
+		
+		$err_msg = $e->errorMessage(); 
+		
+		//sending email to system admin
+		$mail = new PHPMailer(true); // the true param means it will throw exceptions on errors, which we need to catch
+		$mail->isSMTP(); // telling the class to use SMTP
+		$body2 = " 
+					Dear System Admin,<br/><br/>
+				
+					The Email notification: Email Reminder was not successfully delivered.<br><br>
+					Error: $err_msg
+					<br><br>
+					Please check in the server for the status.
+					
+					<br/>
+					<br/>
+				
+					Thank you,<br/>
+					QPMS<br><br>
+					
+					This is an computer generated email. Please do not reply to this email address.
+					";
+		
+		$mail->Host       = "ext-smtp-1.mmu.edu.my"; // SMTP server
+		$mail->SMTPDebug  = 2;                     // enables SMTP debug information (for testing)
+		$mail->SMTPAuth   = false;                  // enable SMTP authentication
+		$mail->Port       = 25;                    // set the SMTP port for the GMAIL server
+		$mail->SetFrom('noreply@mmu.edu.my', 'QPMS');
+		$mail->AddAddress("shahirazrie@gmail.com", "Shahir Azrie");
+		$mail->Subject    = "Important: QPMS Email Reminder failed";
+		$mail->MsgHTML($body2);
+		$mail->Send();
+		////////////////////
+	}
+}
+?>
+
+</body>
+</html>
